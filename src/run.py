@@ -9,6 +9,7 @@ from request_manager import RequestManager
 import os
 import argparse
 import json
+from random import uniform
 
 # === CONSTANTS ===
 CONFIG_FILE_PATH = "data/config.json"
@@ -16,12 +17,24 @@ TARGET_URL = "https://obs.itu.edu.tr/ogrenci/DersKayitIslemleri/DersKayit"
 COURSE_SELECTION_URL = "https://obs.itu.edu.tr/api/ders-kayit/v21/"
 COURSE_TIME_CHECK_URL = "https://obs.itu.edu.tr/api/ogrenci/Takvim/KayitZamaniKontrolu"
 
-# Both are in seconds:
+# All durations are in seconds:
 DELAY_BETWEEN_TRIES = 3 # WARNING: If you want to tweak this value, decreasing it may cause you to hit the API rate limit.
 DELAY_BETWEEN_TIME_CHECKS = .1  # Determines how often the program will check if the course selection time has started, in seconds.
 SPAM_DUR = 60 * 10 # Deternimes how long the program will spam the API HTTP request, in seconds.
 MAX_EXTRA_WAIT_TIME = 60 * 2 # Determines the maximum extra time the program will wait for the course selection to start, in seconds.
 TIMEOUT_WAIT_DUR = 60 * 60 # If a timeout is detected, the program will wait for this amount of time before trying again.
+
+# After `ANTI_TIMEOUT_ADDITIONAL_DELAY_START_THRESHOLD` requests, the program will start adding an additional
+# delay between `ANTI_TIMEOUT_MIN_ADDITIONAL_DELAY` and `ANTI_TIMEOUT_MAX_ADDITIONAL_DELAY` seconds to each request
+# to avoid hitting the rate limit if the previous requests have been timing out.
+ANTI_TIMEOUT_ADDITIONAL_DELAY_START_THRESHOLD = 30
+ANTI_TIMEOUT_MAX_ADDITIONAL_DELAY = 3.0
+ANTI_TIMEOUT_MIN_ADDITIONAL_DELAY = 0.5
+
+# At every `ANTI_TIMEOUT_SLEEP_THRESHOLD` request, the program will wait for `ANTI_TIMEOUT_SLEEP_DUR` seconds to
+# avoid hitting the rate limit if the previous requests have been timing out.
+ANTI_TIMEOUT_SLEEP_THRESHOLD = 50
+ANTI_TIMEOUT_SLEEP_DUR = 10 * 60
 
 def read_inputs(test_mode: bool=False) -> tuple[str, str, list[str], list[str], dict[str, str], datetime | None]:
     Logger.log("Input dosyaları okunuyor...")
@@ -81,6 +94,14 @@ def request_course_selection(token: str, crn_list: list[str], scrn_list: list[st
     result_code = response.text
     return result_code
 
+def get_dur_string(secs: float) -> str:
+    if secs < 60:
+        return f"{secs:.2f} saniye"
+    elif secs < 60 * 60:
+        return f"{int(secs // 60)} dakika {int(secs % 60)} saniye"
+    else:
+        return f"{int(secs // (60 * 60))} saat {int((secs % (60 * 60)) // 60)} dakika {int(secs % 60)} saniye"
+
 parser = argparse.ArgumentParser(prog="itu-ders-secici", description="İTÜ OBS (Kepler) üzerinden zamanlayıcılı ders seçim uygulaması.")
 parser.add_argument("-test", "--test", "-t", help="Test modunu açar, ders kayıt vaktinin gelip gelmediğine bakmaksızın seçim yapar.", action="store_true", default=False)
 parser.add_argument("--show-browser", help="Tarayıcı penceresini gösterir.", action="store_true", default=False)
@@ -89,10 +110,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     test_mode = args.test
     headless = not args.show_browser
-
-    # If in test mode, spam for 10 seconds only.
-    if test_mode:
-        SPAM_DUR = 10
 
     # Don't bother asking for shutdown if in test mode.
     shutdown_on_complete = input("Ders seçimi tamamlandıktan sonra bilgisayar kapatılsın mı? (e/h): ").lower() == "e" if not test_mode else False
@@ -111,7 +128,7 @@ if __name__ == "__main__":
 
     if start_time is not None:
         if delta > 0:
-            Logger.log(f"Ders seçimine 5 dakika kalana kadar bekleniyor ({delta} saniye)...")
+            Logger.log(f"Ders seçimine 5 dakika kalana kadar bekleniyor ({get_dur_string(delta)})...")
             sleep(delta)
 
     # === MULTI-THREADED TOKEN FETCHING ===
@@ -133,7 +150,7 @@ if __name__ == "__main__":
     if start_time is not None:
         delta = (start_time - datetime.now() - timedelta(seconds=45)).total_seconds()
         if delta > 0:
-            Logger.log(f"Ders seçimine 45 saniye kalana kadar bekleniyor ({delta} saniye)...")
+            Logger.log(f"Ders seçimine 45 saniye kalana kadar bekleniyor ({get_dur_string(delta)})...")
             sleep(delta)
 
     # Wait untill the registration starts. (Add a buffer to prevent any possible errors.)
@@ -164,7 +181,7 @@ if __name__ == "__main__":
         while request_manager.check_course_selection_time() is False:
             sleep(DELAY_BETWEEN_TIME_CHECKS)
             if (datetime.now() - api_check_start_time).total_seconds() >= MAX_EXTRA_WAIT_TIME:
-                Logger.log(f"Ders seçimi zaman kontrolü maksimum bekleme süresine ({MAX_EXTRA_WAIT_TIME} saniye) ulaşıldı. Ders seçimi başlamamış gözükmesine rağmen seçmeye çalışılacak.")
+                Logger.log(f"Ders seçimi zaman kontrolü maksimum bekleme süresine ({get_dur_string(MAX_EXTRA_WAIT_TIME)}) ulaşıldı. Ders seçimi başlamamış gözükmesine rağmen seçmeye çalışılacak.")
                 break
     # If testing, wait for the time manually.
     else:
@@ -175,11 +192,16 @@ if __name__ == "__main__":
     Logger.log("Dersler Seçiliyor (Token arka planda sürekli yenileniyor)...")
     course_selection_start_time = datetime.now()
     # Select courses, do it until `DURATION_TO_SPAM` secs after the registration starts.
+    request_counter = 1
+    first_req_time = datetime.now()
     while start_time is None or (datetime.now() - course_selection_start_time).total_seconds() < SPAM_DUR:
+        Logger.log(f"{request_counter}. request atılıyor.")
+        Logger.log(f"İlk requestten geçen süre: {get_dur_string((datetime.now() - first_req_time).total_seconds())} saniye.", silent=True)
+        request_counter += 1
         crn_list, scrn_list, timed_out = request_manager.request_course_selection(crn_list, scrn_list)
         
         if timed_out:
-            Logger.log("Ders seçim isteği zaman aşımına uğradı, program 1 saat boyunca bekleyecek.")
+            Logger.log(f"Ders seçim isteği zaman aşımına uğradı, program {get_dur_string(TIMEOUT_WAIT_DUR)} boyunca bekleyecek.")
             Logger.log("Programı sonlandırmak için \"Ctrl+C\" yapabilirsiniz.")
             try:
                 sleep(TIMEOUT_WAIT_DUR)
@@ -194,16 +216,31 @@ if __name__ == "__main__":
             break
 
         if not test_mode:
-            Logger.log("Alınamayan dersler tekrar deneniyor...")
+            Logger.log("Alınamayan dersler tekrar denenecek.")
             print()
         else:
             print("\n" + "="*20 + " TEST MODU " + "="*20)
-            Logger.log("Alınamayan dersler tekrar denenecekti fakat test modunda olduğundan dolayı bu aşama atlanacak...")
+            Logger.log("Alınamayan dersler tekrar denenecekti fakat test modunda olduğundan dolayı bu aşama atlanacak.")
             Logger.log("Kepler ders seçim işlem geçmişi sayfasını kontrol edin. Hata olarak aktif bir ders seçim zamanı içinde değilsiniz mesajını görüyorsanız, test başarılı demektir.")
             print("="*51 + "\n")
             break
 
-        sleep(DELAY_BETWEEN_TRIES)
+        if request_counter % ANTI_TIMEOUT_SLEEP_THRESHOLD == 0 and request_counter > 0:
+            Logger.log(f"Ban yenilmemesi için {get_dur_string(ANTI_TIMEOUT_SLEEP_DUR)} bekleniyor...")
+            sleep(ANTI_TIMEOUT_SLEEP_DUR)
+            Logger.log("Bekleme süresi doldu, ders seçimine devam ediliyor...")
+
+        extra_wait_time = 0
+        if request_counter >= ANTI_TIMEOUT_ADDITIONAL_DELAY_START_THRESHOLD:
+            if request_counter == ANTI_TIMEOUT_ADDITIONAL_DELAY_START_THRESHOLD:
+                Logger.log(f"Request sayısı {ANTI_TIMEOUT_ADDITIONAL_DELAY_START_THRESHOLD}'e ulaştı, bundan sonra ban yenilmemesi için isteklere ek gecikme ([{get_dur_string(ANTI_TIMEOUT_MIN_ADDITIONAL_DELAY)},  {get_dur_string(ANTI_TIMEOUT_MAX_ADDITIONAL_DELAY)}]) eklenecek.")
+
+            # If the request count is above the threshold, start adding an additional delay to each request to avoid hitting the rate limit.
+            extra_wait_time = uniform(ANTI_TIMEOUT_MIN_ADDITIONAL_DELAY, ANTI_TIMEOUT_MAX_ADDITIONAL_DELAY)
+            Logger.log(f"Gecikmeli bekleme süresi: {get_dur_string(DELAY_BETWEEN_TRIES)} + {get_dur_string(extra_wait_time)} (toplam {get_dur_string(DELAY_BETWEEN_TRIES + extra_wait_time)}).", silent=True)
+
+        sleep(DELAY_BETWEEN_TRIES + extra_wait_time)
+
     # Stop the token fetcher
     token_fetcher.stop()
 
