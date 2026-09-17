@@ -96,6 +96,24 @@ class RequestManager:
             enrollment_data = result_json["kayitZamanKontrolResult"]
             return enrollment_data["ogrenciSinifaKayitOlabilir"] or enrollment_data["ogrenciSiniftanAyrilabilir"]
         except Exception:
+            # Sistem çöktüğünde böyle bir response dönüyor, bu yüzden JSON parse hatası alıyoruz. Bu çökme tam ders seçimi başladığında oluyor, o yüzden o durumda true döndür.
+            # <DOCTYPE HTML kontrolü ile yapsak yeterli diğer durumda valid json döndürüyor ama değerler False oluyor.
+            """
+            <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN""http://www.w3.org/TR/html4/strict.dtd">
+
+            <HTML><HEAD><TITLE>Service Unavailable</TITLE>
+
+            <META HTTP-EQUIV="Content-Type" Content="text/html; charset=us-ascii"></HEAD>
+
+            <BODY><h2>Service Unavailable</h2>
+
+            <hr><p>HTTP Error 503. The service is unavailable.</p>
+
+            </BODY></HTML>
+            """
+            if "<!DOCTYPE HTML" in response.text:
+                Logger.log(f"Sistem çökmesi tespit edildi, ders seçimi için zaman uygun kabul ediliyor.\nkayitZamanKontrolResult:\n{response.text}", silent=True)
+                return True
             return False
 
     def request_course_selection(self, crn_list: list[str], scrn_list: list[str]) -> tuple[list[str], list[str], bool]:

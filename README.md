@@ -8,15 +8,18 @@ Bu _repo_ sayesinde otomatik bir şekilde, önceden zamanlayarak ve _HTTP reques
 
 ## Test Edilen Dönemler
 
-![Tested](https://img.shields.io/badge/tested-2025%2F2026%20Bahar%20Dönemi-green)
+![Tested](https://img.shields.io/badge/tested-2026%2F2027%20Güz%20Dönemi-green)
+
 ![Tested](https://img.shields.io/badge/tested-2025%2F2026%20Güz%20Dönemi-green)
+![Tested](https://img.shields.io/badge/tested-2025%2F2026%20Bahar%20Dönemi-green)
+![Tested](https://img.shields.io/badge/tested-2025%2F2026%20Yaz%20Dönemi-green)
+
+![Tested](https://img.shields.io/badge/tested-2024%2F2025%20Güz%20Dönemi-green)
+![Tested](https://img.shields.io/badge/tested-2024%2F2025%20Bahar%20Dönemi-green)
 ![Tested](https://img.shields.io/badge/tested-2024%2F2025%20Yaz%20Dönemi-green)
 
-![Tested](https://img.shields.io/badge/tested-2024%2F2025%20Bahar%20Dönemi-green)
-![Tested](https://img.shields.io/badge/tested-2024%2F2025%20Güz%20Dönemi-green)
-![Tested](https://img.shields.io/badge/tested-2023%2F2024%20Yaz%20Dönemi-green)
-
 ![Tested](https://img.shields.io/badge/tested-2023%2F2024%20Bahar%20Dönemi-green)
+![Tested](https://img.shields.io/badge/tested-2023%2F2024%20Yaz%20Dönemi-green)
 
 ## Nasıl Kurulur ve Kullanılır
 
